@@ -29,6 +29,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Check Azure Secrets
+        run: |
+          if [ -z "${{ secrets.AZURE_CLIENT_ID }}" ]; then echo "CLIENT_ID is EMPTY"; else echo "CLIENT_ID is PRESENT"; fi
+          if [ -z "${{ secrets.AZURE_CLIENT_SECRET }}" ]; then echo "CLIENT_SECRET is EMPTY"; else echo "CLIENT_SECRET is PRESENT"; fi
+          if [ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then echo "SUBSCRIPTION_ID is EMPTY"; else echo "SUBSCRIPTION_ID is PRESENT"; fi
+          if [ -z "${{ secrets.AZURE_TENANT_ID }}" ]; then echo "TENANT_ID is EMPTY"; else echo "TENANT_ID is PRESENT"; fi
+
+
       # Azure Login
       - name: Azure Login
         uses: azure/login@v2
