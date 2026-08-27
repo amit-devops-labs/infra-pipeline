@@ -1,0 +1,505 @@
+name: Terraform Azure Landing Zone
+
+on:
+  push:
+    branches:
+      - main
+      - feature/copy1
+
+
+permissions:
+  contents: read
+
+env:
+  TF_WORKING_DIR: ./infra-pipeline
+
+jobs:
+
+  # ==================================================
+  # TERRAFORM PLAN
+  # ==================================================
+
+  terraform-plan:
+    name: Terraform Init Validate Plan
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Checkout
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+      # Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Init
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      # Format
+      - name: Terraform Format Check
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform fmt -check -recursive
+
+      # Validate
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      # Plan
+      - name: Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -out=tfplan
+
+      # Upload Plan
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+
+
+  # ==================================================
+  # PRODUCTION APPLY
+  # ==================================================
+
+  terraform-apply:
+    name: Production Terraform Apply
+    needs: terraform-plan
+
+    # ================================================
+    # IMPORTANT
+    # Production environment has required reviewers
+    # ================================================
+    environment:
+      name: Production
+
+    # Only Apply from main branch
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Checkout
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+      # Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Init
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      # Download Plan
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}
+
+      # Apply
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
+
+
+
+
+
+
+
+# name: Terraform Azure Landing Zone
+
+# on:
+#   push:
+#     branches:
+#       - main
+#       - feature/copy1
+
+# permissions:
+#   contents: read
+
+# env:
+#   TF_WORKING_DIR: ./azure_landing_zone/environment/dev
+
+# jobs:
+
+#   # ==================================================
+#   # TERRAFORM PLAN
+#   # ==================================================
+
+#   terraform-plan:
+#     name: Terraform Init Validate Plan
+#     runs-on: self-hosted
+
+#     steps:
+
+#       # ------------------------------------------------
+#       # Checkout
+#       # ------------------------------------------------
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4
+
+
+#       # ------------------------------------------------
+#       # Azure Login
+#       # ------------------------------------------------
+#       - name: Azure Login
+#         uses: azure/login@v2
+#         with:
+#           creds: |
+#             {
+#               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+#               "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+#               "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+#               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+#             }
+
+
+#       # ------------------------------------------------
+#       # Azure Authentication Test
+#       # ------------------------------------------------
+#       - name: Test Azure Authentication
+#         shell: powershell
+#         run: |
+#           Write-Host "=========================================="
+#           Write-Host "Testing Azure Authentication"
+#           Write-Host "=========================================="
+
+#           az account show --only-show-errors
+
+#           az account get-access-token `
+#             --resource https://management.azure.com/ `
+#             --only-show-errors | Out-Null
+
+#           if ($LASTEXITCODE -ne 0) {
+#               Write-Error "Azure Management API authentication failed."
+#               exit $LASTEXITCODE
+#           }
+
+#           Write-Host "Azure Management API authentication successful."
+
+
+#       # ------------------------------------------------
+#       # Test Storage Account Access
+#       # ------------------------------------------------
+#       - name: Test Storage Account Access
+#         shell: powershell
+#         run: |
+#           Write-Host "=========================================="
+#           Write-Host "Testing Storage Account Access"
+#           Write-Host "=========================================="
+
+#           az storage account show `
+#             --name storagefortfstate `
+#             --resource-group rg-tfstate123456 `
+#             --only-show-errors
+
+#           if ($LASTEXITCODE -ne 0) {
+#               Write-Error "Unable to access the Terraform state Storage Account."
+#               exit $LASTEXITCODE
+#           }
+
+#           Write-Host "Storage Account access successful."
+
+
+#       # ------------------------------------------------
+#       # Test Azure Management API Connectivity
+#       # ------------------------------------------------
+#       - name: Test Azure Management API Connectivity
+#         shell: powershell
+#         run: |
+#           Write-Host "=========================================="
+#           Write-Host "Testing Azure Management API Connectivity"
+#           Write-Host "=========================================="
+
+#           $result = Test-NetConnection `
+#             -ComputerName management.azure.com `
+#             -Port 443 `
+#             -WarningAction SilentlyContinue
+
+#           if (-not $result.TcpTestSucceeded) {
+#               Write-Error "Unable to connect to management.azure.com:443"
+#               exit 1
+#           }
+
+#           Write-Host "Azure Management API network connectivity successful."
+
+
+#       # ------------------------------------------------
+#       # Terraform
+#       # ------------------------------------------------
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+
+
+#       # ------------------------------------------------
+#       # Terraform Init
+#       # ------------------------------------------------
+#       - name: Terraform Init
+#         working-directory: ${{ env.TF_WORKING_DIR }}
+#         shell: powershell
+#         run: |
+#           terraform.exe init
+
+
+#       # ------------------------------------------------
+#       # Terraform Format
+#       # ------------------------------------------------
+#       - name: Terraform Format Check
+#         working-directory: ${{ env.TF_WORKING_DIR }}
+#         shell: powershell
+#         run: |
+#           terraform.exe fmt -check -recursive
+
+
+#       # ------------------------------------------------
+#       # Terraform Validate
+#       # ------------------------------------------------
+#       - name: Terraform Validate
+#         working-directory: ${{ env.TF_WORKING_DIR }}
+#         shell: powershell
+#         run: |
+#           terraform.exe validate
+
+
+#       # ------------------------------------------------
+#       # Terraform Plan
+#       # ------------------------------------------------
+#       - name: Terraform Plan
+#         working-directory: ${{ env.TF_WORKING_DIR }}
+#         shell: powershell
+#         run: |
+
+#           $planPath = Join-Path (Get-Location) "tfplan"
+
+#           Write-Host "=========================================="
+#           Write-Host "Terraform Plan"
+#           Write-Host "=========================================="
+
+#           Write-Host "Working Directory:"
+#           Get-Location
+
+#           Write-Host ""
+#           Write-Host "Plan File:"
+#           Write-Host $planPath
+
+#           Write-Host ""
+#           Write-Host "Running Terraform Plan..."
+
+#           terraform.exe plan "-out=$planPath"
+
+#           if ($LASTEXITCODE -ne 0) {
+#               Write-Error "Terraform plan failed with exit code $LASTEXITCODE"
+#               exit $LASTEXITCODE
+#           }
+
+#           Write-Host ""
+#           Write-Host "=========================================="
+#           Write-Host "Checking Terraform Plan File"
+#           Write-Host "=========================================="
+
+#           Get-ChildItem -Path . -Force
+
+#           if (!(Test-Path $planPath)) {
+#               Write-Error "Terraform plan file was not created at:"
+#               Write-Error $planPath
+#               exit 1
+#           }
+
+#           Write-Host ""
+#           Write-Host "Terraform plan file created successfully."
+
+#           Get-Item $planPath
+
+
+#       # ------------------------------------------------
+#       # Upload Terraform Plan
+#       # ------------------------------------------------
+#       - name: Upload Terraform Plan
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: terraform-plan
+#           path: ${{ env.TF_WORKING_DIR }}/tfplan
+#           if-no-files-found: error
+
+
+#   # ==================================================
+#   # PRODUCTION APPLY
+#   # ==================================================
+
+#   terraform-apply:
+#     name: Production Terraform Apply
+
+#     needs:
+#       - terraform-plan
+
+#     # ------------------------------------------------
+#     # Production Environment
+#     # ------------------------------------------------
+#     environment:
+#       name: Production
+
+#     # ------------------------------------------------
+#     # Apply only on main branch push
+#     # ------------------------------------------------
+#     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+#     runs-on: self-hosted
+
+#     steps:
+
+#       # ------------------------------------------------
+#       # Checkout
+#       # ------------------------------------------------
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4
+
+
+#       # ------------------------------------------------
+#       # Azure Login
+#       # ------------------------------------------------
+#       - name: Azure Login
+#         uses: azure/login@v2
+#         with:
+#           creds: |
+#             {
+#               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+#               "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+#               "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+#               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+#             }
+
+
+#       # ------------------------------------------------
+#       # Azure Authentication Test
+#       # ------------------------------------------------
+#       - name: Test Azure Authentication
+#         shell: powershell
+#         run: |
+#           Write-Host "=========================================="
+#           Write-Host "Testing Azure Authentication"
+#           Write-Host "=========================================="
+
+#           az account show --only-show-errors
+
+#           az account get-access-token `
+#             --resource https://management.azure.com/ `
+#             --only-show-errors | Out-Null
+
+#           if ($LASTEXITCODE -ne 0) {
+#               Write-Error "Azure Management API authentication failed."
+#               exit $LASTEXITCODE
+#           }
+
+#           Write-Host "Azure Management API authentication successful."
+
+
+#       # ------------------------------------------------
+#       # Terraform
+#       # ------------------------------------------------
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+
+
+#       # ------------------------------------------------
+#       # Terraform Init
+#       # ------------------------------------------------
+#       - name: Terraform Init
+#         working-directory: ${{ env.TF_WORKING_DIR }}
+#         shell: powershell
+#         run: |
+#           terraform.exe init
+
+
+#       # ------------------------------------------------
+#       # Download Terraform Plan
+#       # ------------------------------------------------
+#       - name: Download Terraform Plan
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: terraform-plan
+#           path: ${{ env.TF_WORKING_DIR }}
+
+
+#       # ------------------------------------------------
+#       # Verify Terraform Plan
+#       # ------------------------------------------------
+#       - name: Verify Terraform Plan
+#         working-directory: ${{ env.TF_WORKING_DIR }}
+#         shell: powershell
+#         run: |
+
+#           Write-Host "=========================================="
+#           Write-Host "Checking Downloaded Terraform Plan"
+#           Write-Host "=========================================="
+
+#           Write-Host "Working Directory:"
+#           Get-Location
+
+#           Write-Host ""
+#           Write-Host "Files:"
+#           Get-ChildItem -Path . -Force
+
+#           if (!(Test-Path ".\tfplan")) {
+#               Write-Error "Terraform plan file was not downloaded!"
+#               exit 1
+#           }
+
+#           Write-Host ""
+#           Write-Host "Terraform plan downloaded successfully."
+
+#           Get-Item ".\tfplan"
+
+
+#       # ------------------------------------------------
+#       # Terraform Apply
+#       # ------------------------------------------------
+#       - name: Terraform Apply
+#         working-directory: ${{ env.TF_WORKING_DIR }}
+#         shell: powershell
+#         run: |
+
+#           Write-Host "=========================================="
+#           Write-Host "Terraform Apply"
+#           Write-Host "=========================================="
+
+#           terraform.exe apply -auto-approve ".\tfplan"
+
+#           if ($LASTEXITCODE -ne 0) {
+#               Write-Error "Terraform apply failed with exit code $LASTEXITCODE"
+#               exit $LASTEXITCODE
+#           }
+
+#           Write-Host ""
+#           Write-Host "Terraform Apply completed successfully."
