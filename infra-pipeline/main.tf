@@ -5,3 +5,8 @@ resource "azurerm_resource_group" "rg" {
   location = "central india"
 }
 
+
+resource "azurerm_resource_group" "rg1" {
+  name     = "rg-test-31-8"
+  location = "central india"
+}
